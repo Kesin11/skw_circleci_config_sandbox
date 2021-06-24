@@ -5,14 +5,28 @@ orbs:
     executors:
       default:
         docker:
-          - image: cimg/openjdk:11
+          - image: cimg/openjdk:11.0
     commands:
       install:
+        parameters:
+          version:
+            type: string
         steps:
-          - run: |
-              LATEST=$(curl -sS https://api.github.com/repos/Kesin11/SkyWarehouse/releases/latest | jq -r .tag_name)
-              curl --retry 3 -sSL -o skw.jar https://github.com/Kesin11/SkyWarehouse/releases/download/${LATEST}/skw.jar
-              chmod +x skw.jar
+          - when:
+              condition:
+                equal: [ latest, << parameters.version >> ]
+              steps:
+                - run: |
+                    LATEST=$(curl -sS https://api.github.com/repos/Kesin11/SkyWarehouse/releases/latest | jq -r .tag_name)
+                    curl --retry 3 -sSL -o skw.jar https://github.com/Kesin11/SkyWarehouse/releases/download/${LATEST}/skw.jar
+                    chmod +x skw.jar
+          - unless:
+              condition:
+                equal: [ latest, << parameters.version >> ]
+              steps:
+                - run: |
+                    curl --retry 3 -sSL -o skw.jar https://github.com/Kesin11/SkyWarehouse/releases/download/<< parameters.version >>/skw.jar
+                    chmod +x skw.jar
       upload:
         parameters:
           bucket:
@@ -27,7 +41,7 @@ orbs:
             type: string
         steps:
           - run: |
-              java -jar skw.jar \
+              java -jar skw.jar upload \
                 -b << parameters.bucket >> \
                 -k << parameters.key >> \
                 -p << parameters.prefix >> \
@@ -42,20 +56,27 @@ jobs:
     executor: skw/default
     steps:
       - checkout
-      - skw/install
+      - skw/install:
+          version: v0.1.2
       - run: |
-          skw --help
+          java -jar skw.jar --help
   test-upload:
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: service.json
+      GCS_SERVICE_ACCOUNT: $GCS_SERVICE_ACCOUNT
     executor: skw/default
     steps:
       - checkout
-      - skw/install
-      
-      - run: |
-          mkdir -p ${CIRCLE_WORKFLOW_ID}
-          touch ${CIRCLE_WORKFLOW_ID}/test-upload
+      - skw/install:
+          version: latest
+      - run:
+          name: Decode service account json
+          command: echo $GCS_SERVICE_ACCOUNT | base64 --decode --ignore-garbage > service.json
+      - run:
+          name: Create dummy file
+          command: |
+              mkdir -p ${CIRCLE_WORKFLOW_ID}
+              touch ${CIRCLE_WORKFLOW_ID}/test-upload
       - skw/upload:
           bucket: kesin11_bazel_cache
           key: circleci_orbs
