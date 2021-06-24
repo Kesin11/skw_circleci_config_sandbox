@@ -1,0 +1,70 @@
+version: 2.1
+
+orbs:
+  skw:
+    executors:
+      default:
+        docker:
+          - image: cimg/openjdk:11
+    commands:
+      install:
+        steps:
+          - run: |
+              LATEST=$(curl -sS https://api.github.com/repos/Kesin11/SkyWarehouse/releases/latest | jq -r .tag_name)
+              curl --retry 3 -sSL -o skw.jar https://github.com/Kesin11/SkyWarehouse/releases/download/${LATEST}/skw.jar
+              chmod +x skw.jar
+      upload:
+        parameters:
+          bucket:
+            type: string
+          key:
+            type: string
+          prefix:
+            type: string
+          tag:
+            type: string
+          paths:
+            type: string
+        steps:
+          - run: |
+              java -jar skw.jar \
+                -b << parameters.bucket >> \
+                -k << parameters.key >> \
+                -p << parameters.prefix >> \
+                -t << parameters.tag >> \
+                << parameters.paths >>
+      # download:
+      #   steps:
+      #     - run: swk download
+
+jobs:
+  test-install:
+    executor: skw/default
+    steps:
+      - checkout
+      - skw/install
+      - run: |
+          skw --help
+  test-upload:
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: service.json
+    executor: skw/default
+    steps:
+      - checkout
+      - skw/install
+      
+      - run: |
+          mkdir -p ${CIRCLE_WORKFLOW_ID}
+          touch ${CIRCLE_WORKFLOW_ID}/test-upload
+      - skw/upload:
+          bucket: kesin11_bazel_cache
+          key: circleci_orbs
+          prefix: orbs
+          tag: ${CIRCLE_BUILD_NUM}
+          paths: ${CIRCLE_WORKFLOW_ID}/test-upload
+
+workflows:
+  test_skw:
+    jobs:
+      - test-install
+      - test-upload
